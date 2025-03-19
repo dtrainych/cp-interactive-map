@@ -1,0 +1,30 @@
+name: interactive-cp-map
+
+services:
+  nginx:
+    image: nginx@sha256:124b44bfc9ccd1f3cedf4b592d4d1e8bddb78b51ec2ed5056c52d3692baebc19
+    ports:
+      - "1488:80"
+    depends_on:
+      - node-server
+      - vue-app
+      - osrm-server
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+
+  node-server:
+    build: ./cp-backend
+    expose:
+      - "3000"
+
+  vue-app:
+    build:
+      context: ./cp-frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+    expose:
+      - "80"
+  osrm-server:
+    build: ./osrm-train-profile
+    expose:
+      - "5000"

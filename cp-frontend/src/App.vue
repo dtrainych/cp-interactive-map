@@ -3,6 +3,7 @@ import 'leaflet/dist/leaflet.css'
 import L, { Map, Marker, type LatLngTuple, Polyline } from 'leaflet'
 import { ref, onMounted, onUnmounted, computed, toRaw, watch, shallowRef } from 'vue'
 import VueSelect from "vue3-select-component";
+import GithubButton from 'vue-github-button'
 
 import U from '@/assets/U.png';
 import AP from '@/assets/AP.png';
@@ -179,7 +180,7 @@ const removeQueryParam = (param: string): void => {
 }
 
 const fetchTrainData = async (): Promise<void> => {
-  if (!trainId.value || trainId.value === null) {stopPolling(); return}
+  if (!trainId.value || trainId.value === null) { stopPolling(); return }
   try {
     const response = await fetch(`${apiURL}/api/train/${trainId.value}`)
     if (!response.ok) {
@@ -614,26 +615,23 @@ watch(trainId, () => {
 <template>
   <div class="flex flex-col sm:flex-row h-screen">
     <!-- Sidebar -->
-    <div class="w-full sm:w-80 bg-gray-100 p-4 shadow-lg">
-      <input v-model.number="trainId" type="number" placeholder="Enter Train ID"
-        class="mb-2 w-full p-2 border rounded focus:ring-2 focus:ring-blue-400" />
-
-      <pre v-if="trainData.error" class="text-red-600">{{ trainData.error }}</pre>
-      <div class="md:mb-4">
-        <VueSelect class="custom-select" @option-deselected="() => stationId = ''" v-model="stationId" :options="[
+    <div class="w-full sm:w-80 bg-gray-100 p-2 shadow-lg">
+      <div class="flex items-center gap-2 w-full mb-2">
+        <VueSelect class="flex-1 custom-select" @option-deselected="() => stationId = ''" v-model="stationId" :options="[
           { label: 'All', value: '' },
           ...Object.keys(typedStationsJson).map(station => ({
             label: station,
             value: typedStationsJson[station],
           }))
         ]" placeholder="Select a station" />
+        <input v-model.number="trainId" type="number" placeholder="ID" class="w-1/4 p-2 border rounded focus:ring-2 focus:ring-blue-400" />
       </div>
 
+      <pre v-if="trainData.error" class="text-red-600">{{ trainData.error }}</pre>
 
-      <div v-if="trainData.trainNumber" class="hidden sm:block mt-4 bg-white p-4 rounded shadow ">
+      <div v-if="trainData.trainNumber" class="hidden sm:block mt-4 bg-white p-4 rounded shadow">
         <strong v-if="trainData.trainStops">
-          {{ trainData.trainStops[0].station.designation }} - {{ trainData.trainStops[trainData.trainStops.length -
-            1].station.designation }}
+          {{ trainData.trainStops[0].station.designation }} - {{ trainData.trainStops[trainData.trainStops.length - 1].station.designation }}
         </strong>
         <ul>
           <li>{{ trainData.serviceCode?.designation }} {{ trainData.trainNumber }}</li>
@@ -641,16 +639,20 @@ watch(trainId, () => {
           <li v-if="ACTIVE_STATUSES.includes(trainData.status || '')">Arrive in {{ timeUntilArrival(trainData) }}</li>
           <li>Next station {{ nextStation(trainData)?.station.designation }}</li>
         </ul>
-        
       </div>
-      <div><a href="https://github.com/dtrainych/cp-interactive-map">Page on Github</a></div>
+
+      <!-- GitHub Button -->
+      <div class="mt-2">
+        <github-button href="https://github.com/dtrainych/cp-interactive-map"
+          data-color-scheme="no-preference: light; light: light; dark: dark;" data-size="small"
+          aria-label="Star dtrainych/cp-interactive-map on GitHub">Star</github-button>
+      </div>
     </div>
 
     <!-- Map Section -->
     <div id="map" class="flex-1 bg-gray-200 h-[50vh] sm:h-screen min-h-[300px]"></div>
   </div>
 </template>
-
 <style scoped>
 .custom-select {
   --vs-menu-z-index: 10000;

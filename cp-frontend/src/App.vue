@@ -409,6 +409,7 @@ const startPolling = (): void => {
 
 const stopPolling = (): void => {
   isPolling.value = false
+  isAutoPanEnabled.value = false;
   trainData.value = {}
   if (pollingInterval) {
     clearInterval(pollingInterval)

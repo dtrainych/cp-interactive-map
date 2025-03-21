@@ -358,7 +358,7 @@ const startPolling = (): void => {
 const stopPolling = (): void => {
   isPolling.value = false
   trainData.value = {}
-  trainId.value = 0
+  trainId.value = null
   removeQueryParam('trainId')
   if (pollingInterval) {
     clearInterval(pollingInterval)
@@ -474,12 +474,12 @@ onUnmounted(() => {
       </div>
       <button @click="togglePolling()"
         :class="['w-full py-2 rounded text-white font-semibold', isPolling ? 'bg-red-500' : 'bg-green-500']">
-        {{ isPolling ? "Stop" : "Start" }} Tracking
+        {{ isPolling ? "Clear" : "Find" }}
       </button>
 
       <pre v-if="trainData.error" class="text-red-600 mt-2">{{ trainData.error }}</pre>
 
-      <div v-else class="mt-4 bg-white p-4 rounded shadow ">
+      <div v-if="trainData.trainNumber" class="mt-4 bg-white p-4 rounded shadow ">
         <strong v-if="trainData.trainStops">
           {{ trainData.trainStops[0].station.designation }} - {{ trainData.trainStops[trainData.trainStops.length -
             1].station.designation }}

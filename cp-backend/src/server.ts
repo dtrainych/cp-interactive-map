@@ -1,6 +1,6 @@
 // Required type definitions
 import { config } from 'dotenv';
-import express, { NextFunction, Request, Response } from 'express';
+import express, { NextFunction, request, Request, Response } from 'express';
 import cors from 'cors';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -68,6 +68,12 @@ interface StationCacheEntry {
   ttl: number;
 }
 
+interface CoordsCacheEntry {
+  data: string;
+  timestamp: number;
+  ttl: number;
+}
+
 // Load environment variables
 config();
 
@@ -83,6 +89,20 @@ const logger = createLogger({
     new transports.File({ filename: 'server.log' })
   ]
 });
+
+function stringToHash(string: String) {
+  let hash = 0;
+  if (string.length == 0) return hash;
+  let i = 0;
+  let char = 0;
+  for (i = 0; i < string.length; i++) {
+    char = string.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return hash;
+}
+
 
 // Initialize Express app
 const app = express();
@@ -107,6 +127,7 @@ const DEFAULT_PORT: number = 3000;
 // Cache management
 const trainCache: Map<number, TrainCacheEntry> = new Map();
 const stationCache: Map<string, StationCacheEntry> = new Map();
+const coordsCache: Map<number, CoordsCacheEntry> = new Map();
 let trainsData: Train[] = [];
 let cacheRefreshQueue: number[] = [];
 let isRefreshInProgress: boolean = false;
@@ -432,26 +453,41 @@ app.get('/api/train/:trainId', async (req: Request, res: Response) => {
   }
 });
 
-/** GET /api/trains/in-transit - Fetch all in-transit trains */
-app.get('/api/trains/in-transit', async (req: Request, res: Response) => {
+/** GET /api/trains/active - Fetch all active trains */
+app.get('/api/trains/active', async (req: Request, res: Response) => {
+  const { stationId } = req.query;
   try {
-    // Use cached data (even if stale) to provide fast response
-    const allTrains = trainsData.map(train => {
-      const trainId = Number(train.trainNumber);
-      return getCachedTrainData(trainId);
-    }).filter(Boolean) as Train[];
+    let trains: Train[] = [];
+    console.log(stationId)
+    if (stationId && typeof stationId === "string" && stationId !== '') {
 
-    // Filter only in-transit trains
-    const inTransitTrains = allTrains.filter(train =>
+      console.log('getting station')
+      const stationData = await getStationData(stationId);
+      if (!stationData) { res.status(404).json({ error: 'Station Not Found' }); return; }
+
+      trains = Object.values(stationData).map(train => {
+        const trainId = Number(train.trainNumber);
+        return getCachedTrainData(trainId);
+      }).filter(Boolean) as Train[];
+    } else {
+      // Use cached data (even if stale) to provide fast response
+      trains = trainsData.map(train => {
+        const trainId = Number(train.trainNumber);
+        return getCachedTrainData(trainId);
+      }).filter(Boolean) as Train[];
+    }
+
+    // Filter only active trains
+    const activeTrains = trains.filter(train =>
       ACTIVE_STATUSES.includes((train.status || '').toUpperCase())
     );
 
-    logger.info(`Serving ${inTransitTrains.length} in-transit trains`);
-    res.json({ total: inTransitTrains.length, trains: inTransitTrains });
+    logger.info(`Serving ${activeTrains.length} active trains`);
+    res.json({ total: activeTrains.length, trains: activeTrains });
   } catch (error) {
     const err = error as Error;
-    logger.error(`Error in in-transit endpoint: ${err.message}`);
-    res.status(500).json({ error: 'Failed to fetch in-transit trains' });
+    logger.error(`Error in active endpoint: ${err.message}`);
+    res.status(500).json({ error: 'Failed to fetch active trains' });
   }
 });
 
@@ -475,11 +511,7 @@ app.get('/api/station/:stationId', async (req: Request, res: Response) => {
     logger.info(`num of stationTrains ${stationTrains.length}`)
 
     // Create response objects without trainStops
-    const responseTrains = stationTrains.map(train => {
-      // Create a new object with all properties except trainStops
-      const { trainStops, ...rest } = train;
-      return rest;
-    }).filter(train =>
+    const responseTrains = stationTrains.filter(train =>
       train.status
     );
     logger.info(`Serving ${responseTrains.length} trains at station ${stationId}`);
@@ -616,6 +648,45 @@ app.post('/api/cache/refresh', (req: Request, res: Response) => {
     res.json({ message: `All trains queued for refresh` });
   }
 });
+
+// Handle the specific route: /api/route/v1/train
+app.get('/api/osrm/route/v1/train/:coordinates', async (req: Request, res: Response) => {
+  try {
+    // Extract coordinates from query parameters
+    const coordinates = req.params.coordinates;
+    if (!coordinates) {
+      res.status(400).send('Coordinates are required');
+      return;
+    }
+    if (typeof coordinates !== 'string') {
+      res.status(400).send('Coordinates must be a string');
+      return;
+    }
+    const hash = stringToHash(coordinates);
+    logger.info(coordinates)
+    const cached = coordsCache.get(hash);
+    const now = Date.now();
+    if (cached && now - cached.timestamp < cached.ttl) {
+      logger.info(`Cache hit for coordinates ${coordinates}`);
+      res.json(JSON.parse(cached.data));
+      return;
+    } else {
+      const proxiedUrl = `http://osrm-server:5000/route/v1/train/${coordinates}?geometries=geojson&overview=full`;
+      logger.info(proxiedUrl)
+      const response = await fetch(proxiedUrl);
+      const data = await response.json();
+      coordsCache.set(hash, { data: JSON.stringify(data), timestamp: now, ttl: 30000 });
+      res.json(data);
+      return;
+    }
+  } catch (error) {
+    const err = error as Error;
+    logger.error(`Error in proxy request: ${err}`);
+    res.status(500).send('Internal Server Error');
+    return;
+  }
+});
+
 
 // Centralized error handling
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {

@@ -2,12 +2,15 @@
 import 'leaflet/dist/leaflet.css'
 import L, { Map, Marker, type LatLngTuple, Polyline } from 'leaflet'
 import { ref, onMounted, onUnmounted, computed, toRaw, watch, shallowRef } from 'vue'
+import VueSelect from "vue3-select-component";
+
 import U from '@/assets/U.png';
 import AP from '@/assets/AP.png';
 import R from '@/assets/R.png';
 import IC from '@/assets/IC.png';
 import IR from '@/assets/IR.png';
 import IN from '@/assets/IN.png';
+import stationsJson from '@/assets/stations.json';
 
 const imageMap = {
   U,
@@ -17,7 +20,9 @@ const imageMap = {
   IR,
   IN
 };
-
+type StationsJson = {
+  [key: string]: string; // This allows any string key to be used
+};
 interface TrainStop {
   station: { code: string; designation: string }
   arrival: string | null
@@ -51,8 +56,11 @@ interface LayerGroups {
   [key: string]: L.LayerGroup
 }
 
+const ACTIVE_STATUSES: string[] = ['IN_TRANSIT', 'AT_STATION', 'NEAR_NEXT', 'AT_ORIGIN'];
+const typedStationsJson: StationsJson = stationsJson;
 const apiURL = import.meta.env.VITE_API_URL
 const trainId = ref<number | null>(null)
+const stationId = ref<string>("")
 const allTrains = ref<AllTrains>({ trains: [], total: 0 })
 const trainData = ref<TrainData>({})
 const lastTrainData = ref<TrainData>({})
@@ -109,12 +117,12 @@ const currentTime = computed(() => {
   return now.getHours() * 60 + now.getMinutes()
 })
 
-const nextStation = computed(() => {
-  if (!trainData.value.trainStops || !trainData.value.latitude || !trainData.value.longitude) return null
-  const trainLat = trainData.value.latitude
-  const trainLon = trainData.value.longitude
-  for (let i = 0; i < trainData.value.trainStops.length; i++) {
-    const stop = trainData.value.trainStops[i]
+const nextStation = ((train: TrainData) => {
+  if (!train.trainStops || !train.latitude || !train.longitude) return null
+  const trainLat = train.latitude
+  const trainLon = train.longitude
+  for (let i = 0; i < train.trainStops.length; i++) {
+    const stop = train.trainStops[i]
     const eta = stop.eta ? parseTime(stop.eta) : parseTime(stop.arrival || stop.departure)
     if (eta > currentTime.value) {
       const stopLat = parseFloat(stop.latitude)
@@ -123,12 +131,13 @@ const nextStation = computed(() => {
       if (distance > 0.1) return stop
     }
   }
-  return trainData.value.trainStops[trainData.value.trainStops.length - 1]
+  return train.trainStops[train.trainStops.length - 1]
 })
 
-const timeUntilArrival = computed(() => {
-  if (!trainData.value.trainStops) return null
-  const lastStop = trainData.value.trainStops[trainData.value.trainStops.length - 1]
+const timeUntilArrival = ((train: TrainData) => {
+
+  if (!train.trainStops || !ACTIVE_STATUSES.includes((train.status || '').toUpperCase())) return null
+  const lastStop = train.trainStops[train.trainStops.length - 1]
   const arrivalInMinutes = parseTime(lastStop.eta || lastStop.arrival || lastStop.departure) - currentTime.value
   if (arrivalInMinutes < 0) return "Arrived"
   const hours = Math.floor(arrivalInMinutes / 60)
@@ -170,10 +179,13 @@ const removeQueryParam = (param: string): void => {
 }
 
 const fetchTrainData = async (): Promise<void> => {
-  if (trainId.value === null) return
+  if (!trainId.value || trainId.value === null) {stopPolling(); return}
   try {
     const response = await fetch(`${apiURL}/api/train/${trainId.value}`)
-    if (!response.ok) throw new Error(`Proxy returned ${response.status}: ${response.statusText}`)
+    if (!response.ok) {
+      stopPolling()
+      console.log(`${response.status}: ${response.statusText}`)
+    }
     const data: TrainData = await response.json()
     trainData.value = data
     if (data.latitude !== undefined && data.longitude !== undefined) {
@@ -190,8 +202,8 @@ const fetchTrainData = async (): Promise<void> => {
 
 const fetchAllTrains = async (): Promise<void> => {
   try {
-    const response = await fetch(`${apiURL}/api/trains/in-transit`)
-    if (!response.ok) throw new Error(`Proxy returned ${response.status}: ${response.statusText}`)
+    const response = await fetch(`${apiURL}/api/trains/active?stationId=${stationId.value}`)
+    if (!response.ok) console.log(`${response.status}: ${response.statusText}`)
     const data: AllTrains = await response.json()
     allTrains.value = data
     if (data.total > 0) {
@@ -201,7 +213,23 @@ const fetchAllTrains = async (): Promise<void> => {
         }
       })
     }
+
+    // Remove markers for trains not in the new list
+    const currentTrainNumbers = new Set(data.trains.map(train => train.trainNumber))
+    const markersToRemove = trainMarkers.value.filter(marker =>
+      !currentTrainNumbers.has((marker.options as any).trainNumber)
+    )
+    markersToRemove.forEach(marker => {
+      const layerKey = (marker.options as any).layerKey
+      if (layerKey && layerGroups.value[layerKey]) {
+        layerGroups.value[layerKey].removeLayer(marker)
+      }
+    })
+    trainMarkers.value = trainMarkers.value.filter(marker =>
+      currentTrainNumbers.has((marker.options as any).trainNumber)
+    )
   } catch (error) {
+    trainData.value = { error: error instanceof Error ? error.message : String(error) }
     console.error('Failed to fetch all trains:', error)
   }
 }
@@ -229,7 +257,7 @@ const drawPolyline = async (): Promise<void> => {
     if (polylineCache.value[stringToHash(coordinates)]) {
       ({ latLngs } = polylineCache.value[stringToHash(coordinates)])
     } else {
-      const osrmUrl = `${apiURL}/osrm/route/v1/train/${coordinates}?geometries=geojson&overview=full`
+      const osrmUrl = `${apiURL}/api/osrm/route/v1/train/${coordinates}?geometries=geojson&overview=full`
 
       const response = await fetch(osrmUrl)
       if (!response.ok) throw new Error(`OSRM request failed: ${response.statusText}`)
@@ -278,9 +306,6 @@ const clearRouteAndStops = (): void => {
   // Remove all stop markers
   stopMarkers.value.forEach(marker => toRaw(marker).remove())
   stopMarkers.value = []
-
-  // Stop polling when clicking outside
-  stopPolling()
 }
 
 const updateMarkerPosition = (train: TrainData, latLng: LatLngTuple): void => {
@@ -301,8 +326,7 @@ const updateMarkerPosition = (train: TrainData, latLng: LatLngTuple): void => {
     // Create new marker
     let trainName = 'N/A'
     if (train.trainStops && train.trainStops.length > 0) {
-      trainName = `${train.trainStops[0].station.designation}  -  ${train.trainStops[train.trainStops.length -
-        1].station.designation}`
+      trainName = `${train.trainStops[0].station.designation}  -  ${train.trainStops[train.trainStops.length - 1].station.designation}`
     }
 
     let trainCode = 'Other'
@@ -310,24 +334,23 @@ const updateMarkerPosition = (train: TrainData, latLng: LatLngTuple): void => {
       trainCode = train.serviceCode.code
     }
 
+    // Determine the layer key
+    const layerKey = trainCode in layerGroups.value ? trainCode : 'Other'
+
     const newMarker = L.marker(latLng, {
       icon: L.icon({
         iconUrl: trainCode in imageMap ? imageMap[trainCode as keyof typeof imageMap] : U,
-        iconSize: [20, 33], // 20% smaller
-        iconAnchor: [10, 33], // Bottom center of the icon
-        popupAnchor: [0, -33] // Centered above the icon
+        iconSize: [20, 33],
+        iconAnchor: [10, 33],
+        popupAnchor: [0, -33]
       }),
-      trainNumber: trainNumber // Custom property to identify the train
+      trainNumber: trainNumber, // Custom property to identify the train
+      layerKey: layerKey       // Store the layer group key
     } as L.MarkerOptions)
-      .bindPopup(`${trainName}<br>${trainCode}${train.trainNumber}<br> Status: ${train.status || 'N/A'}`, { autoClose: false });
+      .bindPopup(`${trainName}<br>${trainCode}${train.trainNumber}<br>Arrive in ${timeUntilArrival(train)}<br>Status: ${train.status || 'N/A'}`, { autoClose: false });
 
     // Add the marker to the appropriate layer group
-    if (trainCode in layerGroups.value) {
-      layerGroups.value[trainCode].addLayer(newMarker)
-    } else {
-      // If the train code doesn't have a layer group, add to 'Other'
-      layerGroups.value['Other'].addLayer(newMarker)
-    }
+    layerGroups.value[layerKey].addLayer(newMarker)
 
     // Add click handler to the marker
     newMarker.on('click', () => {
@@ -341,7 +364,6 @@ const updateMarkerPosition = (train: TrainData, latLng: LatLngTuple): void => {
     rawMap.panTo(latLng, { animate: true });
   }
 }
-
 // Then add stop markers to the custom pane (higher z-index)
 const updateStopMarkers = (): void => {
   if (!map.value || !trainData.value.trainStops) return
@@ -382,16 +404,19 @@ const startPolling = (): void => {
 const stopPolling = (): void => {
   isPolling.value = false
   trainData.value = {}
-  trainId.value = null
-  removeQueryParam('trainId')
   if (pollingInterval) {
     clearInterval(pollingInterval)
     pollingInterval = null
   }
+  clearRouteAndStops()
+}
+const clearTrainId = (): void => {
+  trainId.value = null
+  removeQueryParam('trainId')
 }
 
 const togglePolling = (): void => {
-  if (isPolling.value) { stopPolling(); clearRouteAndStops() }
+  if (isPolling.value) { stopPolling(); clearTrainId(); }
   else startPolling();
 }
 
@@ -548,7 +573,8 @@ const initMap = (): void => {
       );
 
     if (!clickedOnMarkerOrPopup) {
-      clearRouteAndStops();
+      stopPolling();
+      clearTrainId();
     }
   })
 
@@ -574,22 +600,35 @@ onUnmounted(() => {
   stopPolling()
   if (map.value) toRaw(map.value).remove()
 })
+
+watch(stationId, () => {
+  fetchAllTrains()
+})
+
+watch(trainId, () => {
+  startPolling()
+})
+
 </script>
 
 <template>
   <div class="flex flex-col sm:flex-row h-screen">
     <!-- Sidebar -->
     <div class="w-full sm:w-80 bg-gray-100 p-4 shadow-lg">
-      <div class="mb-4">
-        <input v-model.number="trainId" type="number" placeholder="Enter Train ID"
-          class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-400" />
-      </div>
-      <button @click="togglePolling()"
-        :class="['w-full py-2 rounded text-white font-semibold', isPolling ? 'bg-red-500' : 'bg-green-500']">
-        {{ isPolling ? "Clear" : "Find" }}
-      </button>
+      <input v-model.number="trainId" type="number" placeholder="Enter Train ID"
+        class="mb-2 w-full p-2 border rounded focus:ring-2 focus:ring-blue-400" />
 
-      <pre v-if="trainData.error" class="text-red-600 mt-2">{{ trainData.error }}</pre>
+      <pre v-if="trainData.error" class="text-red-600">{{ trainData.error }}</pre>
+      <div class="md:mb-4">
+        <VueSelect class="custom-select" @option-deselected="() => stationId = ''" v-model="stationId" :options="[
+          { label: 'All', value: '' },
+          ...Object.keys(typedStationsJson).map(station => ({
+            label: station,
+            value: typedStationsJson[station],
+          }))
+        ]" placeholder="Select a station" />
+      </div>
+
 
       <div v-if="trainData.trainNumber" class="hidden sm:block mt-4 bg-white p-4 rounded shadow ">
         <strong v-if="trainData.trainStops">
@@ -598,6 +637,9 @@ onUnmounted(() => {
         </strong>
         <ul>
           <li>{{ trainData.serviceCode?.designation }} {{ trainData.trainNumber }}</li>
+          <li>Status {{ trainData.status }}</li>
+          <li v-if="ACTIVE_STATUSES.includes(trainData.status || '')">Arrive in {{ timeUntilArrival(trainData) }}</li>
+          <li>Next station {{ nextStation(trainData)?.station.designation }}</li>
         </ul>
       </div>
     </div>
@@ -608,17 +650,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* @media (max-width: 768px) {
-  .flex {
-    flex-direction: column;
-  }
-
-  .w-80 {
-    width: 100%;
-  }
-
-  #map {
-    height: 50vh;
-  }
-} */
+.custom-select {
+  --vs-menu-z-index: 10000;
+}
 </style>

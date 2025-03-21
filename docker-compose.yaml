@@ -30,7 +30,7 @@ services:
   osrm-server:
     build: ./osrm-train-profile
     expose:
-      - "5000"
+      - 5000:5000
 
 volumes:
   backend-data:

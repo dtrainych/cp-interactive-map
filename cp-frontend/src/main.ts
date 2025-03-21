@@ -13,7 +13,7 @@ if (import.meta.env.MODE === "production") {
         const script = document.createElement("script");
         script.src = analyticsUrl;
         script.defer = true;
-        script.setAttribute("data-domain", websiteId);
+        script.setAttribute("data-website-id", websiteId);
         document.head.appendChild(script);
     }
 }

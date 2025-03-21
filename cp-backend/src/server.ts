@@ -287,7 +287,7 @@ function calculateTTL(train: Train): number {
   const currentTimeInMinutes = now.getHours() * 60 + now.getMinutes();
 
   switch (status) {
-    case 'IN_TRANSIT': return 5 * 1000; // 5 seconds
+    case 'IN_TRANSIT': return 10 * 1000; // 10 seconds
     case 'AT_STATION': return 30 * 1000; // 30 seconds
     case 'NEAR_NEXT': return 30 * 1000; // 30 seconds
     case 'AT_ORIGIN': return 60 * 1000; // 60 seconds

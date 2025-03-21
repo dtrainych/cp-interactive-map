@@ -404,7 +404,7 @@ const startPolling = (): void => {
   setQueryParam('trainId', String(trainId.value))
   if (pollingInterval) clearInterval(pollingInterval)
   fetchTrainData()
-  pollingInterval = setInterval(fetchTrainData, 5000)
+  pollingInterval = setInterval(fetchTrainData, 10000)
 }
 
 const stopPolling = (): void => {

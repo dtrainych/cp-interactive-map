@@ -139,8 +139,13 @@ const timeUntilArrival = ((train: TrainData) => {
 
   if (!train.trainStops || !ACTIVE_STATUSES.includes((train.status || '').toUpperCase())) return null
   const lastStop = train.trainStops[train.trainStops.length - 1]
-  const arrivalInMinutes = parseTime(lastStop.eta || lastStop.arrival || lastStop.departure) - currentTime.value
-  if (arrivalInMinutes < 0) return "Arrived"
+  const eta = parseTime(lastStop.eta || lastStop.arrival || lastStop.departure)
+  let arrivalInMinutes = eta - currentTime.value
+  // If the train eta is past midnight, calculate the time until arrival in the next day
+  if (arrivalInMinutes < 0) {
+    const minutesInDay = 24 * 60
+    arrivalInMinutes = (minutesInDay - currentTime.value) - (eta * -1)
+  }
   const hours = Math.floor(arrivalInMinutes / 60)
   const minutes = arrivalInMinutes % 60
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`

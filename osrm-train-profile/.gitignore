@@ -1,4 +1,5 @@
-*.osrm*
-*.pbf
-world/
-filtered/
+# *.osrm*
+# *.pbf
+# world/
+# filtered/
+# output/

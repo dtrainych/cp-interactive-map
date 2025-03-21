@@ -25,6 +25,8 @@ services:
       context: ./cp-frontend
       args:
         VITE_API_URL: ${VITE_API_URL}
+        VITE_ANALYTICS_URL: ${VITE_ANALYTICS_URL}
+        VITE_WEBSITE_ID: ${VITE_WEBSITE_ID}
     expose:
       - "80"
   osrm-server:

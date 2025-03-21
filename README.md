@@ -31,10 +31,11 @@ The project is organized into the following directories:
    git clone https://github.com/your-repo/interactive-cp-map.git
    cd interactive-cp-map
    ```
-2. Build and run the Docker containers:
+2. Create new `.env` file based on `example.com` and change the values for your needs.
+3. Build and run the Docker containers:
     ```
     docker-compose up --build
     ```
-3. Access the application:  
+4. Access the application:  
     Frontend: http://localhost:1651  
     Backend API: http://localhost:1651

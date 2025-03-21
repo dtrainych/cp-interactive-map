@@ -15,9 +15,10 @@ COPY . .
 
 # Pass the environment variable to the build
 ARG VITE_API_URL
-ENV VITE_API_URL=$VITE_API_URL
+ARG VITE_WEBSITE_ID
+ARG VITE_ANALYTICS_URL
 
-# Run the build command, which will use the VITE_API_URL
+# Run the build command
 RUN npm run build
 
 # Stage 2: Serve the Vue.js app with nginx

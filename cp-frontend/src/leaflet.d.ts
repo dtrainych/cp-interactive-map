@@ -8,6 +8,7 @@ declare module 'leaflet' {
 
   namespace control {
     function panToTrain(options?: ControlOptions): Control;
+    function resetMapControl(options?: ControlOptions): Control;
   }
 
   class Control {

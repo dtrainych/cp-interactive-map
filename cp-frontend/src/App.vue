@@ -66,6 +66,7 @@ let pollingInterval: ReturnType<typeof setInterval> | null = null
 const isPolling = ref<boolean>(false)
 const isAutoPanEnabled = ref<boolean>(false); // Toggle for auto-pan
 let panToTrainControl: L.Control | null = null; // Store reference to the control
+let resetMapControl: L.Control | null = null; // Store reference to the control
 const polylineCache = ref<Record<string, { coordinates: number[][]; latLngs: LatLngTuple }>>({})
 
 // Initialize layer groups for each train type
@@ -303,7 +304,7 @@ const updateMarkerPosition = (train: TrainData, latLng: LatLngTuple): void => {
       trainName = `${train.trainStops[0].station.designation}  -  ${train.trainStops[train.trainStops.length -
         1].station.designation}`
     }
-    
+
     let trainCode = 'Other'
     if (train.serviceCode) {
       trainCode = train.serviceCode.code
@@ -439,6 +440,39 @@ const createPanToTrainControl = () => {
   panToTrainControl = L.control.panToTrain({ position: 'topleft' }) as L.Control;
 };
 
+const createResetMapControl = () => {
+  class ResetMapControl extends L.Control {
+    onAdd(map: L.Map): HTMLElement {
+      const container = L.DomUtil.create('button', 'leaflet-bar leaflet-control leaflet-control-custom');
+      container.innerHTML = '🌍'; // Icon for the button
+      container.style.width = '35px';
+      container.style.height = '35px';
+      container.style.cursor = 'pointer';
+      container.style.fontSize = '18px';
+      container.style.textAlign = 'center';
+      container.style.lineHeight = '35px';
+      container.style.backgroundColor = 'white';
+      container.style.border = '2px solid rgba(0,0,0,0.2)';
+      container.style.borderRadius = '4px';
+
+      container.onclick = resetMap;
+      return container;
+    }
+  };
+
+  // Explicitly type the control factory function
+  L.control.resetMapControl = (opts?: L.ControlOptions): L.Control => {
+    return new ResetMapControl(opts) as L.Control;
+  };
+
+  // Explicitly type the control instance
+  resetMapControl = L.control.resetMapControl({ position: 'topleft' }) as L.Control;
+}
+
+const resetMap = () => {
+  map.value?.setView([39.3999, -8.2245], 8);
+}
+
 // Create the layer control with overlay layers
 const createLayerControl = (): void => {
   if (!map.value) return
@@ -488,6 +522,10 @@ const initMap = (): void => {
     maxZoom: 19,
     attribution: '© OpenStreetMap'
   }).addTo(map.value as L.Map)
+
+  // create and append resetMapControl
+  createResetMapControl()
+  resetMapControl?.addTo(map.value as L.Map)
 
   // Create a custom pane for stop markers with higher z-index
   map.value.createPane('stopsPane')

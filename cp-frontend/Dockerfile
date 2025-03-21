@@ -27,5 +27,8 @@ FROM nginx:alpine
 # Copy the build files to the nginx server
 COPY --from=build /app/dist /usr/share/nginx/html
 
+# Copy custom Nginx configuration
+COPY nginx.conf /etc/nginx/nginx.conf
+
 # Expose port 80 for the Vue.js app
 EXPOSE 80

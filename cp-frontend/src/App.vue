@@ -616,9 +616,10 @@ watch(trainId, () => {
   <div class="flex flex-col sm:flex-row h-screen">
     <!-- Sidebar -->
     <div class="w-full sm:w-80 bg-gray-100 p-2 shadow-lg">
+      Comboios de portugal trains info in real time.
       <div class="flex items-center gap-2 w-full mb-2">
         <VueSelect class="flex-1 custom-select" @option-deselected="() => stationId = ''" v-model="stationId" :options="[
-          { label: 'All', value: '' },
+          { label: 'All Stations', value: '' },
           ...Object.keys(typedStationsJson).map(station => ({
             label: station,
             value: typedStationsJson[station],

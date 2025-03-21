@@ -641,7 +641,9 @@ watch(trainId, () => {
           <li v-if="ACTIVE_STATUSES.includes(trainData.status || '')">Arrive in {{ timeUntilArrival(trainData) }}</li>
           <li>Next station {{ nextStation(trainData)?.station.designation }}</li>
         </ul>
+        
       </div>
+      <div><a href="https://github.com/dtrainych/cp-interactive-map">Page on Github</a></div>
     </div>
 
     <!-- Map Section -->

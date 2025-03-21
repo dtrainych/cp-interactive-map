@@ -4,7 +4,7 @@ services:
   nginx:
     build: .
     ports:
-      - "1651:80"
+      - "${EXPOSE_PORT}:80"
     depends_on:
       - node-server
       - vue-app

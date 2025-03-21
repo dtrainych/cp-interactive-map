@@ -522,7 +522,7 @@ const createLayerControl = (): void => {
 
   // Create the layer control
   layerControl.value = L.control.layers({}, overlays, {
-    collapsed: true,
+    collapsed: false,
     position: 'topright'
   }).addTo(rawMap as L.Map)
 

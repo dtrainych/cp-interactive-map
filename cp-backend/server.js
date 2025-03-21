@@ -255,47 +255,58 @@ async function initializeTrainCache() {
     await processRefreshQueue();
 }
 
-// Get train data, potentially from cache
-async function getTrainData(trainId) {
-    const now = Date.now();
+// Get train data from cache (used for bulk endpoints)
+function getCachedTrainData(trainId) {
     const cached = trainCache.get(trainId);
+    if (!cached) return null;
     
-    // Return cached data if valid
-    if (cached && (now - cached.timestamp) < cached.ttl) {
-        return cached.data;
+    // If expired, queue for refresh but still return the data
+    const now = Date.now();
+    if (now - cached.timestamp >= cached.ttl) {
+        queueTrainForRefresh(trainId);
     }
     
-    // Return stale data but queue for refresh
-    if (cached) {
-        queueTrainForRefresh(trainId, true);
-        return cached.data;
-    }
-    
-    // Fetch fresh data if not in cache
-    const data = await fetchTrainFromCP(trainId);
-    if (data) {
-        const ttl = calculateTTL(data);
-        trainCache.set(trainId, { data, timestamp: now, ttl });
-        logger.info(`Fetched train ${trainId} - TTL: ${ttl / 1000}s`);
-    }
-    return data;
+    return cached.data;
 }
 
 // API Endpoints
 
-/** GET /api/train/:trainId - Fetch individual train details */
+/** GET /api/train/:trainId - Fetch individual train details (always fresh) */
 app.get('/api/train/:trainId', async (req, res) => {
     const trainId = req.params.trainId ? Number(req.params.trainId) : null;
     if (!trainId || isNaN(trainId)) {
         return res.status(400).json({ error: 'Invalid trainId' });
     }
     
+    const now = Date.now();
+    const cached = trainCache.get(trainId);
+    
+    // Return valid cached data if available
+    if (cached && (now - cached.timestamp) < cached.ttl) {
+        logger.info(`Cache hit for train ${trainId}`);
+        return res.json(cached.data);
+    }
+    
+    // Otherwise fetch fresh data
     try {
-        const data = await getTrainData(trainId);
+        const data = await fetchTrainFromCP(trainId);
         if (!data) throw new Error('No data from CP API');
+        
+        // Update cache
+        const ttl = calculateTTL(data);
+        trainCache.set(trainId, { data, timestamp: now, ttl });
+        logger.info(`Fetched fresh data for train ${trainId} - TTL: ${ttl / 1000}s`);
+        
         res.json(data);
     } catch (error) {
         logger.error(`Error fetching train ${trainId}: ${error.message}`);
+        
+        // Fall back to stale cache if available and API call failed
+        if (cached) {
+            logger.info(`Falling back to stale cache for train ${trainId}`);
+            return res.json(cached.data);
+        }
+        
         res.status(500).json({ error: 'Failed to fetch train data' });
     }
 });
@@ -303,17 +314,16 @@ app.get('/api/train/:trainId', async (req, res) => {
 /** GET /api/trains/in-transit - Fetch all in-transit trains */
 app.get('/api/trains/in-transit', async (req, res) => {
     try {
-        // Use cached data first, even if slightly stale
-        const allTrains = await Promise.all(trainsData.map(async train => {
+        // Use cached data (even if stale) to provide fast response
+        const allTrains = trainsData.map(train => {
             const trainId = Number(train.trainNumber);
-            const data = await getTrainData(trainId);
-            return data;
-        }));
+            return getCachedTrainData(trainId);
+        }).filter(Boolean);
         
         // Filter only in-transit trains
-        const inTransitTrains = allTrains
-            .filter(Boolean)
-            .filter(train => ACTIVE_STATUSES.includes((train.status || '').toUpperCase()));
+        const inTransitTrains = allTrains.filter(train => 
+            ACTIVE_STATUSES.includes((train.status || '').toUpperCase())
+        );
         
         logger.info(`Serving ${inTransitTrains.length} in-transit trains`);
         res.json({ total: inTransitTrains.length, trains: inTransitTrains });
@@ -327,10 +337,11 @@ app.get('/api/trains/in-transit', async (req, res) => {
 app.get('/api/trains/metrics', async (req, res) => {
     const now = Date.now();
     try {
-        const allTrains = await Promise.all(trainsData.map(async train => {
+        // Use cached data for metrics endpoint
+        const allTrains = trainsData.map(train => {
             const trainId = Number(train.trainNumber);
-            return await getTrainData(trainId) || train;
-        }));
+            return getCachedTrainData(trainId) || train;
+        });
         
         const validTrains = allTrains.filter(Boolean);
         const metrics = calculateMetrics(validTrains, now);

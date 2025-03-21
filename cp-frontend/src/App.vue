@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import 'leaflet/dist/leaflet.css'
 import L, { Map, Marker, type LatLngTuple, Polyline } from 'leaflet'
-import { ref, onMounted, onUnmounted, computed, toRaw, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, toRaw, watch, shallowRef } from 'vue'
 import U from '@/assets/U.png';
 import AP from '@/assets/AP.png';
 import R from '@/assets/R.png';
@@ -47,14 +47,20 @@ interface AllTrains {
   total: number
 }
 
+interface LayerGroups {
+  [key: string]: L.LayerGroup
+}
+
 const apiURL = import.meta.env.VITE_API_URL
 const trainId = ref<number | null>(null)
 const allTrains = ref<AllTrains>({ trains: [], total: 0 })
 const trainData = ref<TrainData>({})
 const lastTrainData = ref<TrainData>({})
-const map = ref<L.Map | null>(null)
-const trainMarkers = ref<L.Marker[]>([]) // Array to hold multiple train markers
-const stopMarkers = ref<L.CircleMarker[]>([]);
+const map = shallowRef<L.Map | null>(null)
+const trainMarkers = shallowRef<L.Marker[]>([]) // Array to hold multiple train markers
+const stopMarkers = shallowRef<L.CircleMarker[]>([]);
+const layerGroups = shallowRef<LayerGroups>({})
+const layerControl = shallowRef<L.Control.Layers | null>(null)
 const routePolyline = ref<Polyline | null>(null)
 let pollingInterval: ReturnType<typeof setInterval> | null = null
 const isPolling = ref<boolean>(false)
@@ -62,8 +68,16 @@ const isAutoPanEnabled = ref<boolean>(false); // Toggle for auto-pan
 let panToTrainControl: L.Control | null = null; // Store reference to the control
 const polylineCache = ref<Record<string, { coordinates: number[][]; latLngs: LatLngTuple }>>({})
 
+// Initialize layer groups for each train type
+const initLayerGroups = (): void => {
+  // Create a layer group for each train type
+  Object.keys(imageMap).forEach(trainCode => {
+    layerGroups.value[trainCode] = L.layerGroup([])
+  })
 
-
+  // Create a layer group for unknown train types
+  layerGroups.value['Other'] = L.layerGroup([])
+}
 
 // Function to toggle auto-pan
 const toggleAutoPan = () => {
@@ -88,7 +102,6 @@ const toggleAutoPan = () => {
     map.value?.setView([trainData.value.latitude, trainData.value.longitude], 15, { animate: true });
   }
 };
-
 
 const currentTime = computed(() => {
   const now = new Date()
@@ -193,9 +206,7 @@ const fetchAllTrains = async (): Promise<void> => {
 }
 
 function stringToHash(string: String) {
-
   let hash = 0;
-
   if (string.length == 0) return hash;
   let i = 0;
   let char = 0;
@@ -204,7 +215,6 @@ function stringToHash(string: String) {
     hash = ((hash << 5) - hash) + char;
     hash = hash & hash;
   }
-
   return hash;
 }
 
@@ -278,7 +288,6 @@ const updateMarkerPosition = (train: TrainData, latLng: LatLngTuple): void => {
   const trainNumber = train.trainNumber
   const rawMap = toRaw(map.value)
 
-
   // Find existing marker for this train
   const existingMarker = trainMarkers.value.find(marker =>
     (marker.options as any).trainNumber === trainNumber
@@ -294,16 +303,30 @@ const updateMarkerPosition = (train: TrainData, latLng: LatLngTuple): void => {
       trainName = `${train.trainStops[0].station.designation}  -  ${train.trainStops[train.trainStops.length -
         1].station.designation}`
     }
+    
+    let trainCode = 'Other'
+    if (train.serviceCode) {
+      trainCode = train.serviceCode.code
+    }
+
     const newMarker = L.marker(latLng, {
       icon: L.icon({
-        iconUrl: train.serviceCode?.code && train.serviceCode.code in imageMap ? imageMap[train.serviceCode.code as keyof typeof imageMap] : U,
+        iconUrl: trainCode in imageMap ? imageMap[trainCode as keyof typeof imageMap] : U,
         iconSize: [20, 33], // 20% smaller
         iconAnchor: [10, 33], // Bottom center of the icon
-        popupAnchor: [0, -33] // Centered above the iconƒ
+        popupAnchor: [0, -33] // Centered above the icon
       }),
       trainNumber: trainNumber // Custom property to identify the train
-    } as L.MarkerOptions).addTo(rawMap as L.Map)
-      .bindPopup(`${trainName}<br>${train.serviceCode?.code}${train.trainNumber}<br> Status: ${train.status || 'N/A'}`, { autoClose: false })
+    } as L.MarkerOptions)
+      .bindPopup(`${trainName}<br>${trainCode}${train.trainNumber}<br> Status: ${train.status || 'N/A'}`, { autoClose: false });
+
+    // Add the marker to the appropriate layer group
+    if (trainCode in layerGroups.value) {
+      layerGroups.value[trainCode].addLayer(newMarker)
+    } else {
+      // If the train code doesn't have a layer group, add to 'Other'
+      layerGroups.value['Other'].addLayer(newMarker)
+    }
 
     // Add click handler to the marker
     newMarker.on('click', () => {
@@ -312,6 +335,7 @@ const updateMarkerPosition = (train: TrainData, latLng: LatLngTuple): void => {
 
     trainMarkers.value.push(newMarker)
   }
+
   if (isAutoPanEnabled.value) {
     rawMap.panTo(latLng, { animate: true });
   }
@@ -343,7 +367,6 @@ const updateStopMarkers = (): void => {
     }).addTo(rawMap as L.Map)
       .bindPopup(`<b>${stop.station.designation}</b><br>Arrival: ${stop.arrival || 'N/A'}<br>Departure: ${stop.departure}<br>Platform: ${stop.platform}<br>Delay: ${stop.delay < 0 ? "0" : stop.delay} min`, { autoClose: false })
   })
-
 }
 
 const startPolling = (): void => {
@@ -370,23 +393,24 @@ const togglePolling = (): void => {
   if (isPolling.value) { stopPolling(); clearRouteAndStops() }
   else startPolling();
 }
+
 // Show or remove the button when polling starts/stops
 const updatePanToTrainControl = () => {
   if (isPolling.value && !panToTrainControl && map.value) {
     createPanToTrainControl();
     // Add non-null assertion and remove optional chaining
-    panToTrainControl!.addTo(map.value as L.Map);
+    panToTrainControl!.addTo(toRaw(map.value) as L.Map);
   } else if (!isPolling.value && panToTrainControl) {
     panToTrainControl.remove();
     panToTrainControl = null;
   }
 };
+
 // Watch for changes in isPolling
 watch(isPolling, updatePanToTrainControl);
 
 // Create a custom Leaflet control
 const createPanToTrainControl = () => {
-
   class PanToTrainControl extends L.Control {
     onAdd(map: L.Map): HTMLElement {
       const container = L.DomUtil.create('button', 'leaflet-bar leaflet-control leaflet-control-custom');
@@ -415,10 +439,55 @@ const createPanToTrainControl = () => {
   panToTrainControl = L.control.panToTrain({ position: 'topleft' }) as L.Control;
 };
 
+// Create the layer control with overlay layers
+const createLayerControl = (): void => {
+  if (!map.value) return
+  const rawMap = toRaw(map.value)
+  const overlays: { [key: string]: L.Layer } = {}
+
+  // Add layer groups to overlays
+  Object.keys(layerGroups.value).forEach(trainCode => {
+    // Create a more descriptive name for the layer
+    let layerName = trainCode
+    if (trainCode === 'AP') layerName = 'AP - Alfa Pendular'
+    if (trainCode === 'IC') layerName = 'IC - Inter Cidades'
+    if (trainCode === 'IR') layerName = 'IR - Inter Regional'
+    if (trainCode === 'IN') layerName = 'IN - Inter Nacionais'
+    if (trainCode === 'R') layerName = 'R - Regional'
+    if (trainCode === 'U') layerName = 'U - Urbano'
+    if (trainCode === 'Other') layerName = 'Other Trains'
+
+    overlays[layerName] = layerGroups.value[trainCode]
+  })
+
+  // Create the layer control
+  layerControl.value = L.control.layers({}, overlays, {
+    collapsed: true,
+    position: 'topright'
+  }).addTo(rawMap as L.Map)
+
+
+
+  // Add all layer groups to the map by default
+  Object.values(layerGroups.value).forEach(layer => {
+    layer.addTo(rawMap! as L.Map)
+  })
+}
+
 // Modify the initMap function to add the map click handler
 const initMap = (): void => {
-  map.value = L.map('map', { center: [39.3999, -8.2245], zoom: 8 })
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map.value as L.Map)
+  // Initialize layer groups before creating the map
+  initLayerGroups()
+
+  map.value = L.map('map', {
+    center: [39.3999, -8.2245],
+    zoom: 8
+  })
+
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '© OpenStreetMap'
+  }).addTo(map.value as L.Map)
 
   // Create a custom pane for stop markers with higher z-index
   map.value.createPane('stopsPane')
@@ -444,8 +513,11 @@ const initMap = (): void => {
       clearRouteAndStops();
     }
   })
-  updatePanToTrainControl(); // Ensure the button appears if polling is active
 
+  // Create the layer control after the map is initialized
+  createLayerControl()
+
+  updatePanToTrainControl(); // Ensure the button appears if polling is active
 }
 
 onMounted(() => {
@@ -456,6 +528,8 @@ onMounted(() => {
     startPolling()
   }
   fetchAllTrains()
+  // Set an interval to fetch all trains periodically
+  setInterval(fetchAllTrains, 30000)
 })
 
 onUnmounted(() => {
@@ -479,7 +553,7 @@ onUnmounted(() => {
 
       <pre v-if="trainData.error" class="text-red-600 mt-2">{{ trainData.error }}</pre>
 
-      <div v-if="trainData.trainNumber" class="mt-4 bg-white p-4 rounded shadow ">
+      <div v-if="trainData.trainNumber" class="hidden sm:block mt-4 bg-white p-4 rounded shadow ">
         <strong v-if="trainData.trainStops">
           {{ trainData.trainStops[0].station.designation }} - {{ trainData.trainStops[trainData.trainStops.length -
             1].station.designation }}
@@ -496,7 +570,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-@media (max-width: 768px) {
+/* @media (max-width: 768px) {
   .flex {
     flex-direction: column;
   }
@@ -508,5 +582,5 @@ onUnmounted(() => {
   #map {
     height: 50vh;
   }
-}
+} */
 </style>

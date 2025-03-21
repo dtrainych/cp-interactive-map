@@ -2,6 +2,21 @@
 import 'leaflet/dist/leaflet.css'
 import L, { Map, Marker, type LatLngTuple, Polyline } from 'leaflet'
 import { ref, onMounted, onUnmounted, computed, toRaw, watch } from 'vue'
+import U from '@/assets/U.png';
+import AP from '@/assets/AP.png';
+import R from '@/assets/R.png';
+import IC from '@/assets/IC.png';
+import IR from '@/assets/IR.png';
+import IN from '@/assets/IN.png';
+
+const imageMap = {
+  U,
+  AP,
+  R,
+  IC,
+  IR,
+  IN
+};
 
 interface TrainStop {
   station: { code: string; designation: string }
@@ -266,7 +281,7 @@ const updateMarkerPosition = (train: TrainData, latLng: LatLngTuple): void => {
 
   // Find existing marker for this train
   const existingMarker = trainMarkers.value.find(marker =>
-  (marker.options as any).trainNumber === trainNumber
+    (marker.options as any).trainNumber === trainNumber
   )
 
   if (existingMarker) {
@@ -274,16 +289,21 @@ const updateMarkerPosition = (train: TrainData, latLng: LatLngTuple): void => {
     toRaw(existingMarker).setLatLng(latLng)
   } else {
     // Create new marker
+    let trainName = 'N/A'
+    if (train.trainStops && train.trainStops.length > 0) {
+      trainName = `${train.trainStops[0].station.designation}  -  ${train.trainStops[train.trainStops.length -
+        1].station.designation}`
+    }
     const newMarker = L.marker(latLng, {
       icon: L.icon({
-        iconUrl: 'https://cdn-icons-png.flaticon.com/512/3448/3448664.png',
-        iconSize: [41, 41],
-        iconAnchor: [20, 41],
-        popupAnchor: [0, -41] // Adjust this value if needed
+        iconUrl: train.serviceCode?.code && train.serviceCode.code in imageMap ? imageMap[train.serviceCode.code as keyof typeof imageMap] : U,
+        iconSize: [20, 33], // 20% smaller
+        iconAnchor: [10, 33], // Bottom center of the icon
+        popupAnchor: [0, -33] // Centered above the iconƒ
       }),
       trainNumber: trainNumber // Custom property to identify the train
     } as L.MarkerOptions).addTo(rawMap as L.Map)
-      .bindPopup(`Train ${trainNumber}<br>Status: ${train.status || 'N/A'}`, { autoClose: false })
+      .bindPopup(`${trainName}<br>${train.serviceCode?.code}${train.trainNumber}<br> Status: ${train.status || 'N/A'}`, { autoClose: false })
 
     // Add click handler to the marker
     newMarker.on('click', () => {
@@ -366,7 +386,7 @@ watch(isPolling, updatePanToTrainControl);
 
 // Create a custom Leaflet control
 const createPanToTrainControl = () => {
-  
+
   class PanToTrainControl extends L.Control {
     onAdd(map: L.Map): HTMLElement {
       const container = L.DomUtil.create('button', 'leaflet-bar leaflet-control leaflet-control-custom');
@@ -386,8 +406,8 @@ const createPanToTrainControl = () => {
     }
   };
 
-// Explicitly type the control factory function
-L.control.panToTrain = (opts?: L.ControlOptions): L.Control => {
+  // Explicitly type the control factory function
+  L.control.panToTrain = (opts?: L.ControlOptions): L.Control => {
     return new PanToTrainControl(opts) as L.Control;
   };
 
@@ -464,6 +484,9 @@ onUnmounted(() => {
           {{ trainData.trainStops[0].station.designation }} - {{ trainData.trainStops[trainData.trainStops.length -
             1].station.designation }}
         </strong>
+        <ul>
+          <li>{{ trainData.serviceCode?.designation }} {{ trainData.trainNumber }}</li>
+        </ul>
       </div>
     </div>
 

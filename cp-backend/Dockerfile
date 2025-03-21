@@ -10,4 +10,6 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY . .
 EXPOSE 3000
+ARG CORS_ORIGIN
+ENV CORS_ORIGIN=$CORS_ORIGIN
 CMD ["node", "server.js"]

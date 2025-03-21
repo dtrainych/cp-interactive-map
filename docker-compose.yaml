@@ -11,9 +11,14 @@ services:
       - osrm-server
 
   node-server:
-    build: ./cp-backend
+    build: 
+      context: ./cp-backend
+      args:
+        CORS_ORIGIN: ${CORS_ORIGIN}
     expose:
       - "3000"
+    volumes:
+      - backend-data:/app/data
 
   vue-app:
     build:
@@ -26,3 +31,6 @@ services:
     build: ./osrm-train-profile
     expose:
       - "5000"
+
+volumes:
+  backend-data:

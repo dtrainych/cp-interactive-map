@@ -337,7 +337,7 @@ const updateMarkerPosition = (train: TrainData, latLng: LatLngTuple): void => {
     trainMarkers.value.push(newMarker)
   }
 
-  if (isAutoPanEnabled.value) {
+  if (isAutoPanEnabled.value && trainId.value === trainNumber) {
     rawMap.panTo(latLng, { animate: true });
   }
 }
@@ -567,7 +567,7 @@ onMounted(() => {
   }
   fetchAllTrains()
   // Set an interval to fetch all trains periodically
-  setInterval(fetchAllTrains, 30000)
+  setInterval(fetchAllTrains, 30 * 1000)
 })
 
 onUnmounted(() => {

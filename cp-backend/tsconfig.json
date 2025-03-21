@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES6",
+    "module": "commonjs",
+    "outDir": "./dist",          // Output compiled JS to "dist"
+    "rootDir": "./src",           // Source code lives in "src"
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+  },
+  "include": ["src/**/*"],        // Only compile files in "src"
+  "exclude": ["node_modules"]
+}

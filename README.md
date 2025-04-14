@@ -100,7 +100,7 @@ Key environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VITE_API_URL` | `localhost:1651` | Frontend API base URL |
+| `VITE_API_URL` | `https://localhost:1651` | Frontend API base URL |
 | `CORS_ORIGIN` | `*` | Allowed origins for CORS |
 | `EXPOSE_PORT` | 1651 | Public facing port |
 
@@ -125,6 +125,10 @@ npm run dev
 
 Distributed under the GNU GPLv3 License. See `LICENSE` for more information.
 
+## Contact
+
+Project Maintainer - [dtrainych](mailto:mixes-fry44@icloud.com)  
+Project Repository - https://github.com/dtrainych/interactive-cp-map
 
 ## Acknowledgements
 
